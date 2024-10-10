@@ -12,7 +12,7 @@ pub enum DocumentMode {
 pub enum HTMLNode<'a> {
     ///Foreign text, ie. stuff inside XML, JS or CSS nodes, ignored by the parser but different from a regular text node
     Foreign(&'a str),
-    ///Doctype declaration: <!DOCTYPE html>
+    ///Doctype declaration: <!DOCTYPE ...>
     Doctype(&'a str),
     ///HTML Comments: <!--This is a comment-->
     Comment(&'a str),

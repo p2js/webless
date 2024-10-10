@@ -107,14 +107,14 @@ impl<'a> ParseString<'a> {
         )
     }
 
-    ///Helper to return previous character
-    fn previous(&self) -> Option<u8> {
-        if self.current_index == 0 {
-            None
-        } else {
-            Some(self.source.as_bytes()[self.current_index - 1])
-        }
-    }
+    // ///Helper to return previous character
+    // fn previous(&self) -> Option<u8> {
+    //     if self.current_index == 0 {
+    //         None
+    //     } else {
+    //         Some(self.source.as_bytes()[self.current_index - 1])
+    //     }
+    // }
 
     ///Helper to provide lookahead
     fn peek(&self, offset: usize) -> Option<u8> {
@@ -170,21 +170,6 @@ impl<'a> ParseString<'a> {
         }
         Ok(starting_index..self.current_index)
     }
-
-    ///Helper to handle and consume a tag closer (> with optional preceding ' /')
-    fn consume_tag_closer(&mut self) -> Result<(), InternalParseError> {
-        // Consume optional /
-        if self.matches(b'/') {
-            if self.previous().unwrap() != b' ' {
-                return Err(String::from("Expected space before '/'"));
-            }
-            self.advance();
-        }
-        //consume >
-        self.expect(b'>', "end of opening tag")?;
-        self.advance();
-        Ok(())
-    }
 }
 
 // GRAMMAR IMPLEMENTATION
@@ -228,16 +213,25 @@ impl<'a> ParseString<'a> {
             self.ignore_whitespace();
         }
 
-        self.consume_tag_closer()?;
-
         if VOID_ELEMENTS.contains(&element_name) {
-            // Void element, return just that
+            // Void element, tag closer may optionally have a '/'
+            if self.matches(b'/') {
+                self.advance();
+            }
+            //consume >
+            self.expect(b'>', "end of opening tag")?;
+            self.advance();
+
             return Ok(HTMLNode::Element {
                 name: element_name,
                 attributes: attributes.into_boxed_slice(),
                 children: Box::new([]),
             });
         }
+
+        // Otherwise, not a node element, consume >
+        self.expect(b'>', "end of opening tag")?;
+        self.advance();
 
         let mut children = vec![];
         if FOREIGN_ELEMENTS.contains(&element_name) {
@@ -268,7 +262,9 @@ impl<'a> ParseString<'a> {
             ));
         }
         self.ignore_whitespace();
-        self.consume_tag_closer()?;
+        //consume >
+        self.expect(b'>', "end of opening tag")?;
+        self.advance();
 
         Ok(HTMLNode::Element {
             name: element_name,
@@ -282,7 +278,7 @@ impl<'a> ParseString<'a> {
     }
 
     fn text(&mut self) -> NodeResult<'a> {
-        todo!("Text node children")
+        todo!("Text node children (hit at index {})", self.current_index)
     }
 
     fn foreign_text(&mut self) -> NodeResult<'a> {
