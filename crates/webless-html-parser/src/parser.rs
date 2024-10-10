@@ -217,12 +217,13 @@ impl<'a> ParseString<'a> {
         self.advance();
         //get tag name
         let element_name = &self.source[self.consume_alphanumeric()?];
+
         self.ignore_whitespace();
 
         //parse attributes
         let mut attributes = vec![];
 
-        while !self.matches(b'>') || !self.matches(b'/') {
+        while !self.matches(b'>') && !self.matches(b'/') {
             attributes.push(self.attribute()?);
             self.ignore_whitespace();
         }
@@ -242,7 +243,7 @@ impl<'a> ParseString<'a> {
         if FOREIGN_ELEMENTS.contains(&element_name) {
             children.push(self.foreign_text()?);
         } else {
-            while self.current() != Some(b'<') && self.peek(1) != Some(b'/') {
+            while self.current() != Some(b'<') || self.peek(1) != Some(b'/') {
                 if self.current().is_none() || self.peek(1).is_none() {
                     return Err(format!(
                         "Expected matching closing tag for {}",
