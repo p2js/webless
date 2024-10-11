@@ -15,7 +15,7 @@ doctype     -> "<!DOCTYPE" TYPE ">"
 
 voidElement -> "<" VOID_ELEMENT_NAME ((attribute)*)? ("/")? ">"
 foreign     -> "<" FOREIGN_ELEMENT_NAME ((attribute)*)? ">" TEXT "</" FOREIGN_ELEMENT_NAME ">"
-element     -> "<" NAME ((attribute)*)? ("/")? ">" (node)* "</" NAME ">"
+element     -> "<" NAME ((attribute)*)? ">" (node)* "</" NAME ">"
 
 attribute   -> KEY ("=" (NON_QUOTED_VALUE | QUOTED_VALUE))?
 
@@ -31,6 +31,27 @@ const VOID_ELEMENTS: [&str; 16] = [
     "area", "base", "br", "col", "command", "embed", "hr", "img", "input", "keygen", "link",
     "meta", "param", "source", "track", "wbr",
 ];
+
+/// Macro to match for space characters
+macro_rules! space_chars {
+    () => {
+        b' ' | b'\n' | b'\r' | b'\t' | b'\x0C'
+    };
+}
+
+/// Macro to match for control characters besides spaces
+macro_rules! control_chars {
+    () => {
+        b'\x00'..=b'\x08' | b'\x0B' | b'\x0E'..=b'\x1F'| b'\x7F'
+    };
+}
+
+/// Macro to match for
+
+/// Helper to test that a string is in a list, ignoring ascii case
+fn contains_ignore_ascii_case(list: &[&str], str: &str) -> bool {
+    list.iter().any(|term| term.eq_ignore_ascii_case(str))
+}
 
 pub fn parse(source: &str) -> HTMLDocument {
     ParseString::new(source).parse()
@@ -92,10 +113,12 @@ impl<'a> ParseString<'a> {
 
     /// Helper to convert the current character to a String, used in errors.
     fn current_as_string(&self) -> String {
-        if let Some(c) = self.current() {
-            (c as char).to_string()
-        } else {
-            String::from("[document end]")
+        match self.current() {
+            None => String::from("[document end]"),
+            Some(control @ control_chars!()) => {
+                format!("[control character {:#x}]", control)
+            }
+            Some(char) => (char as char).to_string(),
         }
     }
 
@@ -126,7 +149,7 @@ impl<'a> ParseString<'a> {
     }
 
     ///Helper that returns whether the current character matches
-    fn matches(&self, char: u8) -> bool {
+    fn current_matches(&self, char: u8) -> bool {
         if let Some(current) = self.current() {
             current == char
         } else {
@@ -135,8 +158,8 @@ impl<'a> ParseString<'a> {
     }
 
     ///Helper to expect a specific character and error otherwise
-    fn expect(&self, char: u8, what: &str) -> Result<(), InternalParseError> {
-        if self.matches(char) {
+    fn expect(&self, what: &str, char: u8) -> Result<(), InternalParseError> {
+        if self.current_matches(char) {
             Ok(())
         } else {
             Err(format!(
@@ -148,9 +171,9 @@ impl<'a> ParseString<'a> {
         }
     }
 
-    ///Helper that advances as long as it sees white space
+    ///Helper that advances as long as it sees space characters
     fn ignore_whitespace(&mut self) {
-        while let Some(b' ') | Some(b'\n') | Some(b'\r') | Some(b'\t') = self.current() {
+        while let Some(space_chars!()) = self.current() {
             self.advance();
         }
     }
@@ -178,7 +201,7 @@ impl<'a> ParseString<'a> {
     fn strict_node(&mut self) -> NodeResult<'a> {
         self.ignore_whitespace();
 
-        self.expect(b'<', "start of a node")?;
+        self.expect("start of a node", b'<')?;
 
         match self.peek(1) {
             None => Err(String::from("Expected something after start of node")),
@@ -189,7 +212,7 @@ impl<'a> ParseString<'a> {
 
     /// Function to parse any kind of HTML node, including text.
     fn node(&mut self) -> NodeResult<'a> {
-        if !self.matches(b'<') {
+        if !self.current_matches(b'<') {
             return self.text();
         }
 
@@ -206,20 +229,28 @@ impl<'a> ParseString<'a> {
         self.ignore_whitespace();
 
         //parse attributes
-        let mut attributes = vec![];
+        let mut attributes: Vec<HTMLAttribute<'a>> = vec![];
 
-        while !self.matches(b'>') && !self.matches(b'/') {
-            attributes.push(self.attribute()?);
+        while !self.current_matches(b'>') && !self.current_matches(b'/') {
+            let attribute = self.attribute()?;
+
+            if attributes.iter().any(|a| a.name == attribute.name) {
+                return Err(String::from(
+                    "Element has two attributes with the same name",
+                ));
+            }
+
+            attributes.push(attribute);
             self.ignore_whitespace();
         }
 
-        if VOID_ELEMENTS.contains(&element_name) {
+        if contains_ignore_ascii_case(&VOID_ELEMENTS, element_name) {
             // Void element, tag closer may optionally have a '/'
-            if self.matches(b'/') {
+            if self.current_matches(b'/') {
                 self.advance();
             }
             //consume >
-            self.expect(b'>', "end of opening tag")?;
+            self.expect("end of opening tag", b'>')?;
             self.advance();
 
             return Ok(HTMLNode::Element {
@@ -230,11 +261,11 @@ impl<'a> ParseString<'a> {
         }
 
         // Otherwise, not a node element, consume >
-        self.expect(b'>', "end of opening tag")?;
+        self.expect("end of opening tag", b'>')?;
         self.advance();
 
         let mut children = vec![];
-        if FOREIGN_ELEMENTS.contains(&element_name) {
+        if contains_ignore_ascii_case(&FOREIGN_ELEMENTS, element_name) {
             children.push(self.foreign_text()?);
         } else {
             while self.current() != Some(b'<') || self.peek(1) != Some(b'/') {
@@ -263,7 +294,7 @@ impl<'a> ParseString<'a> {
         }
         self.ignore_whitespace();
         //consume >
-        self.expect(b'>', "end of opening tag")?;
+        self.expect("end of opening tag", b'>')?;
         self.advance();
 
         Ok(HTMLNode::Element {
@@ -274,11 +305,82 @@ impl<'a> ParseString<'a> {
     }
 
     fn attribute(&mut self) -> AttributeResult<'a> {
-        todo!("element attributes")
+        //Match for element name
+        let name_start = self.current_index;
+        while !matches!(
+            self.current(),
+            Some(space_chars!() | control_chars!() | b'"' | b'\'' | b'>' | b'/' | b'=') | None
+        ) {
+            self.advance();
+        }
+        if self.current_index - name_start == 0 {
+            return Err(String::from("Expected attribute name"));
+        }
+        let name = &self.source[name_start..self.current_index];
+
+        if let Some(control_chars!()) = self.current() {
+            return Err(format!(
+                "Unexpected control character {}",
+                self.current_as_string()
+            ));
+        }
+
+        self.ignore_whitespace();
+        if self.current().is_none() {
+            return Err(String::from("Expected something after attribute name"));
+        }
+
+        let mut value = "";
+        if self.current_matches(b'=') {
+            // consume =
+            self.advance();
+            match self.current() {
+                None => return Err(String::from("Expected attribute value after =")),
+                Some(quote @ (b'\'' | b'"')) => {
+                    // Quoted attribute-value syntax
+                    // consume opening quote
+                    self.advance();
+                    let value_start = self.current_index;
+                    while !matches!(self.current(), Some(control_chars!()) | None)
+                        && self.current() != Some(quote)
+                    {
+                        self.advance();
+                    }
+                    self.expect("value-ending quote", quote)?;
+
+                    value = &self.source[value_start..self.current_index];
+
+                    // consume closing quote
+                    self.advance();
+                }
+                Some(_) => {
+                    //Unquoted attribute-value syntax
+                    let value_start = self.current_index;
+                    while !matches!(
+                        self.current(),
+                        Some(
+                            control_chars!()
+                                | space_chars!()
+                                | b'"'
+                                | b'\''
+                                | b'='
+                                | b'>'
+                                | b'<'
+                                | b'`'
+                        ) | None,
+                    ) {
+                        self.advance();
+                    }
+                    value = &self.source[value_start..self.current_index];
+                }
+            }
+        }
+
+        Ok(HTMLAttribute { name, value })
     }
 
     fn text(&mut self) -> NodeResult<'a> {
-        todo!("Text node children (hit at index {})", self.current_index)
+        todo!("Text node children")
     }
 
     fn foreign_text(&mut self) -> NodeResult<'a> {

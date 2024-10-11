@@ -4,5 +4,7 @@ use super::*;
 
 #[test]
 fn parse_simple_element() {
-    dbg!(parse("<html><div><hr/><hr></div></html>"));
+    dbg!(parse(
+        r#"<html lang='en'><hr bold><hr bold="yes" italic='no'/></html>"#
+    ));
 }

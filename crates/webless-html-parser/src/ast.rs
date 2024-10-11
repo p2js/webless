@@ -28,6 +28,6 @@ pub enum HTMLNode<'a> {
 
 #[derive(Debug)]
 pub struct HTMLAttribute<'a> {
-    pub(crate) key: &'a str,
-    pub(crate) val: &'a str,
+    pub name: &'a str,
+    pub value: &'a str,
 }
