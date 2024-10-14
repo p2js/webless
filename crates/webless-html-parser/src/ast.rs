@@ -17,7 +17,7 @@ pub enum HTMLNode<'a> {
     ///HTML Comments: <!--This is a comment-->
     Comment(&'a str),
     ///Regular text
-    TextNode(&'a str),
+    Text(&'a str),
     ///All other elements
     Element {
         name: &'a str,

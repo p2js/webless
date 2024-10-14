@@ -2,29 +2,9 @@ use std::ops::Range;
 
 use crate::ast::*;
 
-/*
-Grammar definition:
-
-document    -> strictNode*;
-
-strictNode  -> doctype | comment | voidElement | foreign | element
-node        -> strictNode | textNode
-
-comment     -> "<!--" TEXT "-->"
-doctype     -> "<!DOCTYPE" TYPE ">"
-
-voidElement -> "<" VOID_ELEMENT_NAME ((attribute)*)? ("/")? ">"
-foreign     -> "<" FOREIGN_ELEMENT_NAME ((attribute)*)? ">" TEXT "</" FOREIGN_ELEMENT_NAME ">"
-element     -> "<" NAME ((attribute)*)? ">" (node)* "</" NAME ">"
-
-attribute   -> KEY ("=" (NON_QUOTED_VALUE | QUOTED_VALUE))?
-
-textNode    -> TEXT
-*/
-
 /// Foreign elements; elements that are not expected to contain HTML,
 /// Meaning the parser will treat their inner text as a HtmlNode::Foreign.
-const FOREIGN_ELEMENTS: [&str; 4] = ["script", "style", "svg", "math"];
+const FOREIGN_ELEMENTS: [&str; 6] = ["script", "style", "title", "textarea", "svg", "math"];
 
 /// Self-closing elements; no children or matching closing tag.
 const VOID_ELEMENTS: [&str; 16] = [
@@ -45,8 +25,6 @@ macro_rules! control_chars {
         b'\x00'..=b'\x08' | b'\x0B' | b'\x0E'..=b'\x1F'| b'\x7F'
     };
 }
-
-/// Macro to match for
 
 /// Helper to test that a string is in a list, ignoring ascii case
 fn contains_ignore_ascii_case(list: &[&str], str: &str) -> bool {
@@ -129,15 +107,6 @@ impl<'a> ParseString<'a> {
             Some(b'0'..=b'9' | b'A'..=b'Z' | b'a'..=b'z')
         )
     }
-
-    // ///Helper to return previous character
-    // fn previous(&self) -> Option<u8> {
-    //     if self.current_index == 0 {
-    //         None
-    //     } else {
-    //         Some(self.source.as_bytes()[self.current_index - 1])
-    //     }
-    // }
 
     ///Helper to provide lookahead
     fn peek(&self, offset: usize) -> Option<u8> {
@@ -266,7 +235,7 @@ impl<'a> ParseString<'a> {
 
         let mut children = vec![];
         if contains_ignore_ascii_case(&FOREIGN_ELEMENTS, element_name) {
-            children.push(self.foreign_text()?);
+            children.push(self.foreign_text(element_name)?);
         } else {
             while self.current() != Some(b'<') || self.peek(1) != Some(b'/') {
                 if self.current().is_none() || self.peek(1).is_none() {
@@ -354,7 +323,7 @@ impl<'a> ParseString<'a> {
                     self.advance();
                 }
                 Some(_) => {
-                    //Unquoted attribute-value syntax
+                    // Unquoted attribute-value syntax
                     let value_start = self.current_index;
                     while !matches!(
                         self.current(),
@@ -379,11 +348,44 @@ impl<'a> ParseString<'a> {
         Ok(HTMLAttribute { name, value })
     }
 
+    /// Function to parse text nodes inside elements
     fn text(&mut self) -> NodeResult<'a> {
-        todo!("Text node children")
+        let starting_index = self.current_index;
+        while !matches!(self.current(), Some(control_chars!() | b'<') | None) {
+            self.advance();
+        }
+        Ok(HTMLNode::Text(
+            &self.source[starting_index..self.current_index],
+        ))
     }
 
-    fn foreign_text(&mut self) -> NodeResult<'a> {
-        todo!("Foreign text")
+    /// Function to parse foreign text, which will continue until it sees </element_name
+    fn foreign_text(&mut self, element_name: &str) -> NodeResult<'a> {
+        let starting_index = self.current_index;
+
+        while let Some(c) = self.current() {
+            // Verify any </ encountered is not the closing tag
+            if c == b'<' && self.peek(1) == Some(b'/') {
+                // get the next (element_name length) characters after </
+                let offset = self.current_index + 2;
+                let next_chars = self
+                    .source
+                    .get(offset..(offset + element_name.len()))
+                    .unwrap_or("");
+                // break if the slice equals the name
+                if next_chars.eq_ignore_ascii_case(element_name) {
+                    break;
+                }
+            }
+            //Otherwise consume
+            self.advance();
+        }
+        if self.current().is_none() {
+            return Err(format!("Expected closing tag </{element_name}>"));
+        }
+        // Return Foreign node with slice
+        return Ok(HTMLNode::Foreign(
+            &self.source[starting_index..self.current_index],
+        ));
     }
 }
