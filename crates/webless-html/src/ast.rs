@@ -1,6 +1,16 @@
 #[derive(Debug)]
+
 pub struct HTMLDocument<'a> {
-    pub html: Box<[HTMLNode<'a>]>,
+    html: Box<[HTMLNode<'a>]>,
+}
+
+impl<'a> HTMLDocument<'a> {
+    pub(crate) fn new(html: Box<[HTMLNode<'a>]>) -> Self {
+        Self { html }
+    }
+    pub fn html(&self) -> &[HTMLNode<'a>] {
+        &self.html
+    }
 }
 
 pub enum DocumentMode {

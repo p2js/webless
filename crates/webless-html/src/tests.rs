@@ -6,7 +6,9 @@ use super::*;
 
 #[test]
 fn parse_example_doc() {
-    dbg!(parse(
+    dbg!(
+    parse(
         r#"<!DOCTYPE html><!--Comment--><html lang='en'><h1>Hello World</h1><hr color="red"><p>Text here</p><hr bold="yes" italic/><script>javascript here </bla></script></html>"#
-    ).html);
+    ).unwrap().html()
+    );
 }

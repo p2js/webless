@@ -1,6 +1,7 @@
 use std::ops::Range;
 
 use crate::ast::*;
+use crate::parse_error::ParseError;
 
 /// Foreign elements; elements that are not expected to contain HTML,
 /// Meaning the parser will treat their inner text as a HtmlNode::Foreign.
@@ -31,7 +32,10 @@ fn contains_ignore_ascii_case(list: &[&str], str: &str) -> bool {
     list.iter().any(|term| term.eq_ignore_ascii_case(str))
 }
 
-pub fn parse(source: &str) -> HTMLDocument {
+/// Type representing result returned by public-facing parsing function
+pub type ParseResult<'a> = Result<HTMLDocument<'a>, ParseError>;
+
+pub fn parse(source: &str) -> ParseResult {
     ParseString::new(source).parse()
 }
 
@@ -55,16 +59,18 @@ impl<'a> ParseString<'a> {
         }
     }
 
-    fn parse(&mut self) -> HTMLDocument<'a> {
+    fn parse(&mut self) -> ParseResult<'a> {
         let mut html_nodes = vec![];
 
         while !self.is_at_end() {
-            html_nodes.push(self.strict_node().unwrap());
+            let node_parse = self.strict_node();
+            match node_parse {
+                Ok(node) => html_nodes.push(node),
+                Err(msg) => return Err(ParseError::new(msg, self.source, self.current_index)),
+            }
         }
 
-        HTMLDocument {
-            html: html_nodes.into_boxed_slice(),
-        }
+        Ok(HTMLDocument::new(html_nodes.into_boxed_slice()))
     }
 }
 
