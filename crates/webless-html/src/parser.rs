@@ -453,8 +453,10 @@ impl<'a> ParseString<'a> {
     /// Function to parse a DOCYPE declaration
     fn doctype_declaration(&mut self) -> NodeResult<'a> {
         // Check that DOCTYPE follows <!
-        if !self.source[(self.current_index + 2)..(self.current_index + 9)]
-            .eq_ignore_ascii_case("DOCTYPE")
+        if !self
+            .source
+            .get((self.current_index + 2)..(self.current_index + 9))
+            .is_some_and(|str| str.eq_ignore_ascii_case("DOCTYPE"))
         {
             return Err(String::new());
         }
