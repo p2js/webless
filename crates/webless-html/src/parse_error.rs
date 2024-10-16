@@ -9,24 +9,18 @@ pub struct ParseError {
 
 impl ParseError {
     pub(crate) fn new(msg: String, source: &str, byte_idx: usize) -> Self {
-        // Calculate line from number of newlines up to the error byte index
-
-        let line = source[0..byte_idx]
-            .as_bytes()
-            .iter()
-            .filter(|b| b == &&b'\n')
-            .count();
-
-        let last_newline_idx = source[0..byte_idx]
+        // Calculate line and column from byte index of last newline character
+        let last_newline = source[0..byte_idx]
             .as_bytes()
             .iter()
             .enumerate()
-            .filter(|(_, b)| b == &&b'\n')
+            .filter(|(_, byte)| byte == &&b'\n')
+            .enumerate()
             .last()
-            .unwrap_or((0, &0))
-            .0;
+            .unwrap_or((0, (0, &0)));
 
-        let col = byte_idx - last_newline_idx;
+        let line = last_newline.0;
+        let col = byte_idx - last_newline.1 .0;
 
         Self { msg, line, col }
     }
